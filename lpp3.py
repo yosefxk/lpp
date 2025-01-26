@@ -18,15 +18,6 @@ def check_handicap(license_plate_number):
         st.error(f"Error checking handicap status: {e}")
         return "⚠️"  # Indicate an error
 
-# def check_pictures(license_plate_number):
-#     url = f"http://iblp.xyz/srch.php?search={str(license_plate_number)}"
-#     try:
-#         req_text = requests.get(url).text
-#         return not ("Nothing found" in req_text)
-#     except requests.exceptions.RequestException as e:
-#         st.error(f"Error checking for pictures: {e}")
-#         return None # Indicate an error
-
 def search_count(license_plate_number):
     if license_plate_number in st.session_state.searches_dict:
         st.session_state.searches_dict[license_plate_number] += 1
@@ -142,6 +133,14 @@ type_of_vehicle = {
     "M" : "מסחרי"
 }
 
+# --- Mapping for Dynamic Links ---
+base_urls = {
+    "private_vehicles": "https://data.gov.il/dataset/private-and-commercial-vehicles/resource/",
+    "busses": "https://data.gov.il/dataset/bus_fleet/resource/",
+    "motorcycles": "https://data.gov.il/dataset/motorcycle/resource/",
+    "private_import": "https://data.gov.il/dataset/personal_import_vehicles/resource/"
+}
+
 # --- Main Search Function ---
 
 def lp_search(lp_to_find):
@@ -151,12 +150,12 @@ def lp_search(lp_to_find):
         if resource_id == "handicapped":
             continue
 
-        url = f"https://data.gov.il/api/action/datastore_search?resource_id={resource_ids[resource_id]}&filters={{\"{license_plate_field[resource_id]}\":\"{str(lp_to_find)}\"}}"
+        url = f"https://data.gov.il/api/action/datastore_search?resource_id={resource_ids[resource_id]}&filters={{\"{license_plate_field[resource_id]}\":磋商{str(lp_to_find)}\"}}"
         try:
             req_dict = requests.get(url, headers={'user-agent': '"datagov-external-client"'}).json()
 
             if req_dict["result"]["total"] == 1:
-                result_data = {"מקור מידע": hebrew_resource_ids[resource_id]}
+                result_data = {"מקור מידע": hebrew_resource_ids[resource_id], "resource_id": resource_id} # Added resource_id to result_data
                 record = req_dict["result"]["records"][0]
 
                 if resource_id == "private_vehicles":
@@ -175,7 +174,6 @@ def lp_search(lp_to_find):
         except requests.exceptions.RequestException as e:
             st.error(f"Error querying {hebrew_resource_ids[resource_id]}: {e}")
 
-    st.markdown(f"<div style='text-align: right;'>{search_count(lp_to_find)}</div>", unsafe_allow_html=True)
     if not all_results:
         add_notification(lp_to_find)
     return all_results
@@ -198,6 +196,10 @@ def perform_search():
 st.markdown("<h3 style='text-align: right;'>:הזינו מספר לוחית רישוי לחיפוש</h3>", unsafe_allow_html=True)
 license_plate = st.text_input("", key="license_plate_input", on_change=perform_search)
 
+# Display search count below the search bar
+if st.session_state.license_plate_input:
+    st.markdown(f"<div style='text-align: right;'>{search_count(st.session_state.license_plate_input)}</div>", unsafe_allow_html=True)
+
 # Initialize search_results in session state
 if 'search_results' not in st.session_state:
     st.session_state.search_results = []
@@ -205,25 +207,30 @@ if 'search_results' not in st.session_state:
 if st.session_state.search_results:
     st.markdown("<h2 style='text-align: right;'>תוצאות חיפוש</h2>", unsafe_allow_html=True)
     for result in st.session_state.search_results:
+        resource_id = result.get("resource_id")
+        license_plate_number = st.session_state.license_plate_input # Get the input from the search bar
+        if resource_id and license_plate_number and resource_id in base_urls:
+            base_url = base_urls[resource_id]
+            # Construct the dynamic link
+            filter_field = license_plate_field[resource_id]
+            link = f"{base_url}{resource_id}?filters={filter_field}%3A{license_plate_number}"
+            st.markdown(f"<div style='text-align: right;'><a href='{link}' target='_blank'>מקור מידע: {result['מקור מידע']}</a></div>", unsafe_allow_html=True)
+        elif resource_id and license_plate_number:
+            st.markdown(f"<div style='text-align: right;'>מקור מידע: {result['מקור מידע']}</div>", unsafe_allow_html=True) # Display without link if base URL is missing
+
         col1, col2 = st.columns(2)
         for i, (key, value) in enumerate(result.items()):
-            with col1 if i % 2 == 0 else col2:
-                st.markdown(f"<div style='text-align: right; direction: rtl;'><strong>{key}:</strong> {value}</div>", unsafe_allow_html=True)
+            if key not in ["מקור מידע", "resource_id"]: # Exclude the title from the tabular display
+                with col1 if i % 2 == 0 else col2:
+                    st.markdown(f"<div style='text-align: right; direction: rtl;'><strong>{key}:</strong> {value}</div>", unsafe_allow_html=True)
 
-        license_plate_number = result.get('מספר רכב')
-        # if license_plate_number:
-        #     has_pictures = check_pictures(license_plate_number)
-        #     if has_pictures is True:
-        #         st.success(f"<div style='text-align: right; direction: rtl;'>📷 נמצאו תמונות עבור לוחית זו באתר iblp.xyz</div>")
-        #     elif has_pictures is False:
-        #         st.warning(f"<div style='text-align: right; direction: rtl;'>לא נמצאו תמונות עבור לוחית זו באתר iblp.xyz</div>", unsafe_allow_html=True)
-        #     elif has_pictures is None:
-        #         st.error(f"<div style='text-align: right; direction: rtl;'>שגיאה בבדיקת תמונות.</div>", unsafe_allow_html=True)
         st.markdown("<hr>", unsafe_allow_html=True)
 
 else:
     if st.session_state.license_plate_input:  # Only show if something was entered
-        st.warning("<div style='text-align: right; direction: rtl;'>לא נמצאו תוצאות עבור לוחית זו.</div>", unsafe_allow_html=True)
+        st.markdown("<div style='text-align: right; direction: rtl;'>לא נמצאו תוצאות עבור לוחית זו.</div>", unsafe_allow_html=True)
+
+st.markdown("<div style='text-align: right;'>© yosefxk</div>", unsafe_allow_html=True)
 
 if st.session_state.notifications_monitor:
     st.sidebar.subheader("לוחיות רישוי במעקב:")
